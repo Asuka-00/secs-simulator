@@ -1,0 +1,154 @@
+/**
+ * Global theme tokens (light default on :root, dark under html.dark).
+ * 全局主题变量（:root 为亮色默认，html.dark 为暗色）。
+ */
+
+:root,
+html.light {
+  color-scheme: light;
+  --bg: #f0f2f5;
+  --panel: #ffffff;
+  --header-bg: #ffffff;
+  --border: #e2e5eb;
+  --border-strong: #c9ced6;
+  --text: #1f2328;
+  --muted: #656d76;
+  --surface: #ffffff;
+  --surface-2: #f6f8fa;
+  --surface-hover: #eef1f6;
+  --surface-active: #e6f4ea;
+  --surface-active-border: #b7e0c4;
+  --input-bg: #ffffff;
+  --code-bg: #f6f8fa;
+  --tree-bg: #fafbfc;
+  --btn-bg: #f6f8fa;
+  --btn-border: #d0d7de;
+  --arr-h2e-fg: #2563eb;
+  --arr-h2e-bg: #dbeafe;
+  --arr-e2h-fg: #d97706;
+  --arr-e2h-bg: #fef3c7;
+  --ar-dot: #16a34a;
+  --w-badge-bg: #fef3c7;
+  --w-badge-fg: #b45309;
+  --status-ok-bg: #dcfce7;
+  --status-ok-fg: #15803d;
+  --status-wait-bg: #fef3c7;
+  --status-wait-fg: #b45309;
+  --status-off-bg: #e5e7eb;
+  --status-off-fg: #6b7280;
+  --danger: #dc2626;
+  --ctx-bg: #ffffff;
+  --ctx-border: #d0d7de;
+  --ctx-hover: #f0f2f5;
+  --ctx-text: #1f2328;
+  --log-row-border: #eef0f3;
+  --sf-color: #1d4ed8;
+  --list-ty-color: #15803d;
+  --sys-color: #7c3aed;
+  --pre-color: #374151;
+  --pre-hex-color: #6b7280;
+  --shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+html.dark {
+  color-scheme: dark;
+  --bg: #14161a;
+  --panel: #181a1f;
+  --header-bg: #101217;
+  --border: #2a2d34;
+  --border-strong: #3a3f4a;
+  --text: #e8eaed;
+  --muted: #8b919a;
+  --surface: #1a1c22;
+  --surface-2: #12141a;
+  --surface-hover: #1f2329;
+  --surface-active: #1a2a22;
+  --surface-active-border: #2f5a40;
+  --input-bg: #12141a;
+  --code-bg: #12141a;
+  --tree-bg: #12141a;
+  --btn-bg: #1f2329;
+  --btn-border: #3a3f4a;
+  --arr-h2e-fg: #3b82f6;
+  --arr-h2e-bg: #1e3a5f;
+  --arr-e2h-fg: #f59e0b;
+  --arr-e2h-bg: #3a2f12;
+  --ar-dot: #22c55e;
+  --w-badge-bg: #3a2f12;
+  --w-badge-fg: #fbbf24;
+  --status-ok-bg: #14301f;
+  --status-ok-fg: #4ade80;
+  --status-wait-bg: #3a2f12;
+  --status-wait-fg: #fbbf24;
+  --status-off-bg: #2a2c31;
+  --status-off-fg: #8b919a;
+  --danger: #ef4444;
+  --ctx-bg: #1e2128;
+  --ctx-border: #3a3f4a;
+  --ctx-hover: #2a3340;
+  --ctx-text: #e8eaed;
+  --log-row-border: #22242a;
+  --sf-color: #93c5fd;
+  --list-ty-color: #4ade80;
+  --sys-color: #a78bfa;
+  --pre-color: #d1d5db;
+  --pre-hex-color: #9ca3af;
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+html {
+  font-family: "SF Mono", "Menlo", "Monaco", "Consolas", "Liberation Mono",
+    "Courier New", ui-monospace, monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
+  background-color: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Element Plus dense tool overrides / Element Plus 密集工具样式 */
+.el-button {
+  --el-button-bg-color: var(--btn-bg);
+  --el-button-border-color: var(--btn-border);
+  --el-button-text-color: var(--text);
+}
+
+.el-input__wrapper,
+.el-textarea__inner {
+  background-color: var(--input-bg) !important;
+  box-shadow: 0 0 0 1px var(--border) inset !important;
+}
+
+.el-select__wrapper {
+  background-color: var(--input-bg) !important;
+  box-shadow: 0 0 0 1px var(--border) inset !important;
+}
+
+.el-dialog {
+  --el-dialog-bg-color: var(--panel);
+  --el-dialog-title-font-size: 14px;
+}
+
+.el-checkbox__label,
+.el-radio__label {
+  color: var(--text);
+}
