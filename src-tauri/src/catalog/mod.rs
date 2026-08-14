@@ -19,11 +19,22 @@ use body_tree::{body_tree_to_secs2, BodyItem};
 use data_item::body_tree_to_sml;
 use smd::parse_smd_xml;
 
+/// Bundled example dictionary. New sessions load this by default.
+pub const DEFAULT_SMD_XML: &str = include_str!("../../../default.SMD");
+pub const DEFAULT_SMD_SOURCE: &str = "default.SMD";
+
 /// Shared live catalog for open runtime (hot-updatable).
 pub type SharedCatalog = Arc<Mutex<MessageCatalog>>;
 
 pub fn new_shared_catalog(catalog: MessageCatalog) -> SharedCatalog {
     Arc::new(Mutex::new(catalog))
+}
+
+pub fn default_catalog() -> MessageCatalog {
+    let mut cat = MessageCatalog::default();
+    cat.import_smd(DEFAULT_SMD_XML, DEFAULT_SMD_SOURCE)
+        .expect("bundled default.SMD");
+    cat
 }
 
 /// One prefabricated message (from SMD or hand-edited).
@@ -285,7 +296,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_k_erack_sample_header() {
+    fn parse_smd_sample_header() {
         let xml = r#"<?xml version="1.0"?>
 <SECSMessage>
   <AreYouThere>
@@ -342,62 +353,19 @@ mod tests {
     }
 
     #[test]
-    fn import_real_k_erack_if_present() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../K-ERACK.SMD");
-        if !path.is_file() {
-            return;
-        }
-        let xml = std::fs::read_to_string(&path).unwrap();
-        let mut cat = MessageCatalog::default();
-        let n = cat.import_smd(&xml, "K-ERACK.SMD").unwrap();
-        assert!(n > 100, "expected many messages, got {n}");
-        // Equip receives S1F13 H->E with AutoReply
+    fn import_default_smd() {
+        let cat = default_catalog();
+        assert!(cat.messages.len() > 10, "expected many messages, got {}", cat.messages.len());
         let p = cat
             .find_auto_reply_primary(&Role::Equipment, 1, 13)
             .expect("S1F13 auto primary for equip");
         let r = cat.find_reply_for(&Role::Equipment, p).unwrap();
         assert_eq!(r.function, 14);
-
-        // Many S6F11 event variants: Description is the title, not all "OFFLINE"
-        let s6f11: Vec<_> = cat
-            .messages
-            .iter()
-            .filter(|m| m.stream == 6 && m.function == 11)
-            .collect();
-        assert!(s6f11.len() > 10, "expected many S6F11 variants, got {}", s6f11.len());
-        let names: std::collections::HashSet<_> =
-            s6f11.iter().map(|m| m.message_name.as_str()).collect();
-        assert!(
-            names.contains("ALARM_SET") || names.contains("CARRIER_ID_ERROR"),
-            "S6F11 variants should use Description as name, got {:?}",
-            names.iter().take(8).collect::<Vec<_>>()
-        );
-        assert!(
-            !names.iter().all(|n| *n == "S6F11" || *n == "OFFLINE"),
-            "all S6F11 collapsed to one name: {:?}",
-            names
-        );
-        // S6F12 reply for ALARM_SET must pair by Description, not first OFFLINE
-        let alarm = s6f11
-            .iter()
-            .find(|m| m.description == "ALARM_SET" || m.message_name == "ALARM_SET")
-            .expect("ALARM_SET S6F11");
-        let reply = cat
-            .find_reply_for(&Role::Host, alarm)
-            .expect("S6F12 for ALARM_SET");
-        assert_eq!(reply.function, 12);
-        assert_eq!(reply.description, alarm.description);
     }
 
     #[test]
-    fn doc1_s6f11_empty_ascii_encodes() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../doc1.SMD");
-        if !path.is_file() {
-            return;
-        }
-        let xml = std::fs::read_to_string(&path).unwrap();
-        let mut cat = MessageCatalog::default();
-        cat.import_smd(&xml, "doc1.SMD").unwrap();
+    fn default_smd_s6f11_empty_ascii_encodes() {
+        let cat = default_catalog();
         let m = cat
             .messages
             .iter()

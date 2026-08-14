@@ -47,7 +47,7 @@ const defaultExpanded = ref<string[]>([]);
 watch(
   () => props.messages.length,
   () => {
-    // Expand nothing by default when huge catalog (K-ERACK 600+)
+    // Expand nothing by default when huge catalog (default.SMD 600+)
     if (props.messages.length <= 40) {
       defaultExpanded.value = treeData.value.map((n) => n.id);
     }

@@ -167,7 +167,7 @@ impl SessionManager {
             open: false,
             hsms_state: "NotConnected".into(),
             logs: SessionLog::new(capacity),
-            catalog: MessageCatalog::default(),
+            catalog: crate::catalog::default_catalog(),
             runtime: None,
         };
         let summary = session.summary();
@@ -871,23 +871,12 @@ mod tests {
     /// which must reuse the primary system-bytes so Host's T3 waiter completes.
     #[test]
     fn host_s6f11_manual_s6f12_reply() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../doc1.SMD");
-        if !path.is_file() {
-            return;
-        }
-        let xml = std::fs::read_to_string(&path).unwrap();
-
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         drop(listener);
 
         let manager = new_shared();
         let (equip_id, host_id) = seed_pair(&manager, port);
-        {
-            let mut g = manager.lock().unwrap();
-            g.import_smd(&equip_id, &xml, "doc1.SMD").unwrap();
-            g.import_smd(&host_id, &xml, "doc1.SMD").unwrap();
-        }
 
         let (s6f11_body, s6f12_body) = {
             let g = manager.lock().unwrap();
@@ -896,12 +885,12 @@ mod tests {
                 .messages
                 .iter()
                 .find(|m| m.stream == 6 && m.function == 11)
-                .expect("doc1 S6F11");
+                .expect("default.SMD S6F11");
             let r = cat
                 .messages
                 .iter()
                 .find(|m| m.stream == 6 && m.function == 12)
-                .expect("doc1 S6F12");
+                .expect("default.SMD S6F12");
             (p.body_secs2().unwrap(), r.body_secs2().unwrap())
         };
 

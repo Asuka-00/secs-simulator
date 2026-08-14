@@ -25,7 +25,7 @@ cd src-tauri && cargo check
 
 行为完全由 **消息目录（Message Catalog）** 驱动（无独立 Rules/GEM 面板）：
 
-1. **Import SMD** 导入 GWGEM 风格字典（如 `K-ERACK.SMD`）
+1. 新建会话默认导入仓库内 [`default.SMD`](default.SMD)；也可 **Import SMD** 替换为其它 GWGEM 风格字典
 2. 左侧 **按 Pair/SxFy 分组树**（蓝/黄箭头表示 H→E / H←E，绿点 = AutoReply）
 3. **右键菜单**：Edit Property / Edit Body / Send / Copy / Delete / Toggle AR / New
 4. **双击** 消息节点 → 属性弹窗；双击 body 行 → Body 弹窗
@@ -51,11 +51,10 @@ cd src-tauri && cargo test --lib
 
 ## 快速联调
 
-1. 侧栏 **Pair** 创建 Equip(Passive) + Host(Active) 于 `:5000`
-2. 在 **Equip** 上 **Import SMD**（仓库内 `K-ERACK.SMD`）
-3. 先 Open **Equip**，再 Open **Host**，状态变为 Selected
-4. 在 Host 选中 `S1F13` / `S1F1` 等消息点 **Send**，Equip 按 AR 自动回包
-5. 在消息列表勾选/取消 **AR** 即可控制是否自动回复
+1. 侧栏 **Pair** 创建 Equip(Passive) + Host(Active) 于 `:5000`（已带 `default.SMD`）
+2. 先 Open **Equip**，再 Open **Host**，状态变为 Selected
+3. 在 Host 选中 `S1F13` / `S1F1` 等消息点 **Send**，Equip 按 AR 自动回包
+4. 在消息列表勾选/取消 **AR** 即可控制是否自动回复
 
 ## 布局
 
