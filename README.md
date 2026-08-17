@@ -66,4 +66,4 @@ Sessions │ Connection bar
 
 ## License
 
-[Apache License 2.0](LICENSE). Vendored [`secs4rs`](src-tauri/vendor/secs4rs) is also Apache-2.0.
+[Apache License 2.0](LICENSE).
