@@ -130,9 +130,15 @@ async function onSaveConfig(config: SessionConfig) {
   }
 }
 
-async function onOpen() {
+async function onOpen(config: SessionConfig) {
   if (!store.activeSessionId) return;
   try {
+    await store.saveConfig(store.activeSessionId, config);
+    try {
+      await store.persistState();
+    } catch {
+      /* persist optional / 持久化失败不挡打开 */
+    }
     await store.openSession(store.activeSessionId);
   } catch (e) {
     ElMessage.error(String(e));

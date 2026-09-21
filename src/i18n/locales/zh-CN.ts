@@ -45,6 +45,10 @@ export default {
     openBtn: "打开",
     closeBtn: "关闭",
     linktest: "链路测试",
+    passiveIpHint: "本端监听全部网卡；对端 Active 请填 {ip}",
+    activeIpHint: "填对端局域网 IP，不要填 127.0.0.1 或 0.0.0.0",
+    activeLoopbackWarn: "当前是环回地址，只能连本机。跨设备请改成对端局域网 IP。",
+    lanIpUnknown: "本机局域网 IP",
   },
   library: {
     title: "SECS 事务消息",

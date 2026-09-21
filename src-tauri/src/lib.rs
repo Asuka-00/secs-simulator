@@ -15,8 +15,8 @@ mod gem_bridge;
 mod rules;
 
 use commands::app::{
-    app_get_settings, app_get_state, app_load_state, app_save_state, app_set_settings,
-    secs4rs_version,
+    app_get_settings, app_get_state, app_load_state, app_local_ipv4, app_save_state,
+    app_set_settings, secs4rs_version,
 };
 use commands::catalog::{
     session_get_catalog, session_import_smd, session_new_blank_message, session_remove_message,
@@ -68,6 +68,7 @@ pub fn run() {
             app_save_state,
             app_load_state,
             app_get_state,
+            app_local_ipv4,
             session_list,
             session_create,
             session_remove,

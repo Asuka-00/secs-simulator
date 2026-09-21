@@ -207,6 +207,8 @@ pub struct HsmsSsCommunicator {
     accept_workers: Mutex<Vec<JoinHandle<()>>>,
     /// HSMS message pass-through (try-send / sended / receive); lives across sessions.
     pass_through: Arc<HsmsPassThrough>,
+    /// Last bind/connect/select failure from the background Open loop.
+    last_open_error: Mutex<Option<String>>,
 }
 
 impl HsmsSsCommunicator {
@@ -236,7 +238,29 @@ impl HsmsSsCommunicator {
             passive_session_count: Arc::new(AtomicU64::new(0)),
             accept_workers: Mutex::new(Vec::new()),
             pass_through: Arc::new(HsmsPassThrough::new()),
+            last_open_error: Mutex::new(None),
         }
+    }
+
+    fn set_last_open_error(&self, err: &HsmsError) {
+        if matches!(err, HsmsError::DetectTerminate) {
+            return;
+        }
+        *self.last_open_error.lock().expect("last open error") = Some(err.to_string());
+    }
+
+    /// Take the latest background Open failure (bind / connect / select).
+    pub fn take_last_open_error(&self) -> Option<String> {
+        self.last_open_error.lock().expect("last open error").take()
+    }
+
+    /// Connect with T5 timeout so a filtered LAN host does not block the retry loop.
+    fn connect_tcp(&self, addr: SocketAddr) -> Result<TcpStream, HsmsError> {
+        let mut wait = self.config.timeout().t5().get().as_duration();
+        if wait.is_zero() {
+            wait = Duration::from_secs(5);
+        }
+        TcpStream::connect_timeout(&addr, wait).map_err(HsmsError::from)
     }
 
     /// Shared pass-through facade (`HsmsMessagePassThroughObservable`).
@@ -370,7 +394,7 @@ impl HsmsSsCommunicator {
             .socket_address()
             .ok_or(HsmsError::Protocol("socket address unset"))?;
 
-        let stream = TcpStream::connect(addr).map_err(HsmsError::from)?;
+        let stream = self.connect_tcp(addr)?;
         self.open.store(true, Ordering::SeqCst);
         self.state.set(HsmsCommunicateState::NotSelected);
 
@@ -422,8 +446,8 @@ impl HsmsSsCommunicator {
                             this.state.set(HsmsCommunicateState::NotConnected);
                         }
                     }
-                    Err(_) => {
-                        // Connect/select failed — T5 then retry.
+                    Err(e) => {
+                        this.set_last_open_error(&e);
                     }
                 }
                 if this.open_stop.load(Ordering::SeqCst) {
@@ -642,8 +666,8 @@ impl HsmsSsCommunicator {
                                 .set(HsmsCommunicateState::NotConnected);
                         }
                     }
-                    Err(_) => {
-                        // Bind/accept/select failed or stop during accept.
+                    Err(e) => {
+                        this.set_last_open_error(&e);
                         this.unset_channel();
                     }
                 }
@@ -672,7 +696,7 @@ impl HsmsSsCommunicator {
             .socket_address()
             .ok_or(HsmsError::Protocol("socket address unset"))?;
 
-        let stream = TcpStream::connect(addr).map_err(HsmsError::from)?;
+        let stream = self.connect_tcp(addr)?;
         self.open.store(true, Ordering::SeqCst);
         self.state.set(HsmsCommunicateState::NotSelected);
 

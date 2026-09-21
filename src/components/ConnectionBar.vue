@@ -3,8 +3,9 @@
  * Connection toolbar: role/mode/IP/port + open/close.
  * 连接工具栏：角色/模式/IP/端口 + 打开/关闭。
  */
-import { computed, reactive, ref, watch } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { invoke } from "@tauri-apps/api/core";
 import type { SessionConfig } from "../types/session";
 
 const props = defineProps<{
@@ -16,13 +17,14 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   save: [config: SessionConfig];
-  open: [];
+  open: [config: SessionConfig];
   close: [];
 }>();
 
 const { t } = useI18n();
 const draft = reactive<SessionConfig>({ ...props.config });
 const advanced = ref(false);
+const lanIp = ref("");
 
 watch(
   () => props.config,
@@ -39,6 +41,31 @@ const stateClass = computed(() => {
 function onSave() {
   emit("save", { ...draft });
 }
+
+function onOpen() {
+  emit("open", { ...draft });
+}
+
+const ipHint = computed(() => {
+  const ip = lanIp.value || t("conn.lanIpUnknown");
+  return draft.mode === "passive" ? t("conn.passiveIpHint", { ip }) : t("conn.activeIpHint");
+});
+
+const activeIsLoopback = computed(() => {
+  const ip = draft.ip.trim().toLowerCase();
+  return (
+    draft.mode === "active" &&
+    (ip === "127.0.0.1" || ip === "localhost" || ip === "::1")
+  );
+});
+
+onMounted(async () => {
+  try {
+    lanIp.value = await invoke<string>("app_local_ipv4");
+  } catch {
+    /* ignore */
+  }
+});
 </script>
 
 <template>
@@ -59,7 +86,13 @@ function onSave() {
         <el-option :label="t('conn.passive')" value="passive" />
         <el-option :label="t('conn.active')" value="active" />
       </el-select>
-      <el-input v-model="draft.ip" size="small" class="w-ip" :disabled="open" />
+      <el-input
+        v-model="draft.ip"
+        size="small"
+        class="w-ip"
+        :disabled="open"
+        :title="ipHint"
+      />
       <el-input-number
         v-model="draft.port"
         size="small"
@@ -92,7 +125,7 @@ function onSave() {
           type="success"
           :disabled="open || busy"
           :loading="busy && !open"
-          @click="emit('open')"
+          @click="onOpen"
         >
           {{ t("conn.openBtn") }}
         </el-button>
@@ -107,6 +140,8 @@ function onSave() {
         </el-button>
       </div>
     </div>
+    <p class="ip-hint">{{ ipHint }}</p>
+    <p v-if="activeIsLoopback" class="ip-warn">{{ t("conn.activeLoopbackWarn") }}</p>
     <div v-if="advanced" class="row more">
       <label>T3 <el-input-number v-model="draft.t3" size="small" :min="0.1" :disabled="open" /></label>
       <label>T5 <el-input-number v-model="draft.t5" size="small" :min="0.1" :disabled="open" /></label>
@@ -155,10 +190,22 @@ function onSave() {
   font-size: 11px;
 }
 
+.ip-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.ip-warn {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--danger);
+}
+
 .w-name { width: 120px; }
 .w-role { width: 120px; }
 .w-mode { width: 110px; }
-.w-ip { width: 120px; }
+.w-ip { width: 140px; }
 
 .status {
   font-size: 11px;

@@ -34,7 +34,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   save: [config: SessionConfig];
-  open: [];
+  open: [config: SessionConfig];
   close: [];
   clearLogs: [];
   refreshLogs: [];
@@ -249,7 +249,7 @@ function onSaveConfig(config: SessionConfig) {
       :hsms-state="summary.hsmsState"
       :busy="busy || localBusy"
       @save="onSaveConfig"
-      @open="emit('open')"
+      @open="emit('open', $event)"
       @close="emit('close')"
     />
 

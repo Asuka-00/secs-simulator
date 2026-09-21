@@ -1,7 +1,7 @@
 //! Per-session HSMS-SS runtime: config build, open/close, state + catalog auto-reply.
 //! 单会话 HSMS-SS 运行时：配置、打开/关闭、状态与目录自动应答。
 
-use std::net::SocketAddr;
+use std::net::{SocketAddr, ToSocketAddrs, UdpSocket};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -164,6 +164,67 @@ pub fn hsms_state_label(state: HsmsCommunicateState) -> &'static str {
     }
 }
 
+/// Active connects to `cfg.ip` (IP or hostname). Passive binds all interfaces.
+pub fn resolve_hsms_socket_addr(cfg: &SessionConfig) -> AppResult<SocketAddr> {
+    match cfg.mode {
+        ConnectionMode::Active => resolve_active_addr(&cfg.ip, cfg.port),
+        ConnectionMode::Passive => {
+            let listen = if looks_like_ipv6(&cfg.ip) {
+                "::"
+            } else {
+                "0.0.0.0"
+            };
+            parse_ip_port(listen, cfg.port)
+        }
+    }
+}
+
+/// Default-route IPv4, for "peer should connect here" hints.
+pub fn local_outbound_ipv4() -> Option<String> {
+    let sock = UdpSocket::bind("0.0.0.0:0").ok()?;
+    sock.connect("1.1.1.1:80").ok()?;
+    let ip = sock.local_addr().ok()?.ip();
+    if ip.is_loopback() || ip.is_unspecified() {
+        None
+    } else {
+        Some(ip.to_string())
+    }
+}
+
+fn looks_like_ipv6(ip: &str) -> bool {
+    ip.contains(':')
+}
+
+fn parse_ip_port(ip: &str, port: u16) -> AppResult<SocketAddr> {
+    let spec = if ip.contains(':') && !ip.starts_with('[') {
+        format!("[{ip}]:{port}")
+    } else {
+        format!("{ip}:{port}")
+    };
+    spec.parse()
+        .map_err(|e| AppError::Message(format!("invalid ip/port: {e}")))
+}
+
+fn resolve_active_addr(host: &str, port: u16) -> AppResult<SocketAddr> {
+    let host = host.trim();
+    if host.is_empty() {
+        return Err(AppError::Message("active ip is empty".into()));
+    }
+    if let Ok(addr) = parse_ip_port(host, port) {
+        if addr.ip().is_unspecified() {
+            return Err(AppError::Message(
+                "Active cannot connect to 0.0.0.0/::; set the peer LAN IP".into(),
+            ));
+        }
+        return Ok(addr);
+    }
+    let spec = format!("{host}:{port}");
+    spec.to_socket_addrs()
+        .map_err(|e| AppError::Message(format!("cannot resolve {spec}: {e}")))?
+        .next()
+        .ok_or_else(|| AppError::Message(format!("cannot resolve {spec}")))
+}
+
 /// Build secs4rs HSMS-SS config from simulator session config.
 pub fn build_hsms_config(cfg: &SessionConfig) -> AppResult<HsmsSsCommunicatorConfig> {
     let c = HsmsSsCommunicatorConfig::new();
@@ -176,10 +237,7 @@ pub fn build_hsms_config(cfg: &SessionConfig) -> AppResult<HsmsSsCommunicatorCon
         ConnectionMode::Passive => HsmsConnectionMode::Passive,
     });
 
-    let addr: SocketAddr = format!("{}:{}", cfg.ip, cfg.port)
-        .parse()
-        .map_err(|e| AppError::Message(format!("invalid ip/port: {e}")))?;
-    c.set_socket_address(addr);
+    c.set_socket_address(resolve_hsms_socket_addr(cfg)?);
 
     c.timeout().set_t3(cfg.t3);
     c.timeout().set_t5(cfg.t5);
@@ -307,18 +365,30 @@ impl SessionRuntime {
             flow_rt.clone(),
         );
 
+        let sock = resolve_hsms_socket_addr(cfg)?;
+        let lan = local_outbound_ipv4();
+        let extra = match cfg.mode {
+            ConnectionMode::Active if sock.ip().is_loopback() => {
+                " (loopback: remote hosts unreachable; set peer LAN IP)"
+            }
+            ConnectionMode::Passive => "",
+            _ => "",
+        };
+        let peer_hint = match (&cfg.mode, &lan) {
+            (ConnectionMode::Passive, Some(ip)) => format!("; peer Active should connect {ip}:{}", cfg.port),
+            _ => String::new(),
+        };
         push_log(
             &manager,
             &app,
             &session_id,
             LogEntry::system(format!(
-                "open {} {}:{} sessionId={} equip={}",
+                "open {} {} sessionId={} equip={}{extra}{peer_hint}",
                 match cfg.mode {
-                    ConnectionMode::Active => "Active",
-                    ConnectionMode::Passive => "Passive",
+                    ConnectionMode::Active => "Active connect",
+                    ConnectionMode::Passive => "Passive listen",
                 },
-                cfg.ip,
-                cfg.port,
+                sock,
                 cfg.session_id,
                 matches!(cfg.role, Role::Equipment)
             )),
@@ -372,6 +442,7 @@ impl SessionRuntime {
             let fr = flow_rt.clone();
             thread::spawn(move || {
                 let mut last = String::new();
+                let mut last_err = String::new();
                 loop {
                     let still = {
                         let g = match mgr.lock() {
@@ -382,6 +453,18 @@ impl SessionRuntime {
                     };
                     if !still {
                         break;
+                    }
+
+                    if let Some(err) = c.take_last_open_error() {
+                        if err != last_err {
+                            last_err = err.clone();
+                            push_log(
+                                &mgr,
+                                &app_h,
+                                &sid,
+                                LogEntry::system(format!("open failed: {err}")),
+                            );
+                        }
                     }
 
                     let label = hsms_state_label(c.hsms_communicate_state()).to_string();
@@ -439,5 +522,66 @@ impl SessionRuntime {
         self.comm
             .send_data(stream, function, wbit, body)
             .map_err(|e| AppError::Message(format!("send_data failed: {e}")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::config::{ConnectionMode, Role, SessionConfig};
+
+    fn cfg(mode: ConnectionMode, ip: &str, port: u16) -> SessionConfig {
+        SessionConfig {
+            name: "t".into(),
+            role: Role::Equipment,
+            mode,
+            ip: ip.into(),
+            port,
+            session_id: 10,
+            ..SessionConfig::default()
+        }
+    }
+
+    #[test]
+    fn build_hsms_passive_binds_unspecified_v4() {
+        let c = build_hsms_config(&cfg(ConnectionMode::Passive, "127.0.0.1", 5000)).unwrap();
+        let addr = c.socket_address().expect("addr");
+        assert!(addr.ip().is_unspecified(), "passive must bind 0.0.0.0, got {addr}");
+        assert!(addr.is_ipv4());
+        assert_eq!(addr.port(), 5000);
+    }
+
+    #[test]
+    fn build_hsms_passive_ipv6_binds_unspecified() {
+        let c = build_hsms_config(&cfg(ConnectionMode::Passive, "::1", 5000)).unwrap();
+        let addr = c.socket_address().expect("addr");
+        assert!(addr.ip().is_unspecified(), "passive IPv6 must bind [::], got {addr}");
+        assert!(addr.is_ipv6());
+        assert_eq!(addr.port(), 5000);
+    }
+
+    #[test]
+    fn build_hsms_active_keeps_configured_ip() {
+        let c = build_hsms_config(&cfg(ConnectionMode::Active, "192.168.1.10", 5000)).unwrap();
+        let addr = c.socket_address().expect("addr");
+        assert_eq!(addr.to_string(), "192.168.1.10:5000");
+    }
+
+    #[test]
+    fn build_hsms_active_rejects_unspecified() {
+        match build_hsms_config(&cfg(ConnectionMode::Active, "0.0.0.0", 5000)) {
+            Ok(_) => panic!("Active 0.0.0.0 must be rejected"),
+            Err(err) => assert!(
+                err.to_string().contains("0.0.0.0"),
+                "expected unspecified reject, got {err}"
+            ),
+        }
+    }
+
+    #[test]
+    fn build_hsms_active_resolves_localhost() {
+        let addr = resolve_hsms_socket_addr(&cfg(ConnectionMode::Active, "localhost", 5000)).unwrap();
+        assert!(addr.ip().is_loopback(), "localhost should be loopback, got {addr}");
+        assert_eq!(addr.port(), 5000);
     }
 }

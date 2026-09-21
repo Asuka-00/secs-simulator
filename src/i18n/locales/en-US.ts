@@ -45,6 +45,10 @@ export default {
     openBtn: "Open",
     closeBtn: "Close",
     linktest: "Linktest",
+    passiveIpHint: "Listens on all interfaces; peer Active should use {ip}",
+    activeIpHint: "Peer LAN IP — not 127.0.0.1 or 0.0.0.0",
+    activeLoopbackWarn: "Loopback only reaches this machine. For another host, set the peer LAN IP.",
+    lanIpUnknown: "this host's LAN IP",
   },
   library: {
     title: "SECS Transaction Messages",

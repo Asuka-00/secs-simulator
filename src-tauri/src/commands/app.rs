@@ -84,3 +84,9 @@ pub fn app_get_state(
     let guard = manager.lock().map_err(lock_err)?;
     Ok(guard.snapshot())
 }
+
+/// Default-route IPv4 for cross-device Active/Passive hints (empty if unknown).
+#[tauri::command]
+pub fn app_local_ipv4() -> String {
+    crate::session::runtime::local_outbound_ipv4().unwrap_or_default()
+}
