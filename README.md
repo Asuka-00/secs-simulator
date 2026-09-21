@@ -40,6 +40,8 @@ Language and theme are header switchers, persisted in `localStorage`.
 
 ## 开发
 
+包管理器只用 **pnpm**（不要用 npm / yarn）。
+
 ```bash
 pnpm install
 pnpm tauri dev

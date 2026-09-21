@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { FlowTick } from "../types/flow";
 import {
   defaultSessionConfig,
   type LogEntry,
@@ -18,6 +19,9 @@ export const useSessionStore = defineStore("session", () => {
   const activeSessionId = ref<string | null>(null);
   const secs4rsVersion = ref<string>("");
   const busy = ref(false);
+  const flowTick = ref<FlowTick | null>(null);
+  /** Backend-owned run set; survives Flow tab unmount. */
+  const runningBySession = ref<Record<string, string[]>>({});
   let unlisten: UnlistenFn | null = null;
 
   const activeSession = computed(
@@ -64,6 +68,17 @@ export const useSessionStore = defineStore("session", () => {
       };
     } else if (ev.type === "log" && ev.entry) {
       appendLog(ev.sessionId, ev.entry);
+    } else if (ev.type === "flow_progress" || ev.type === "flow_done") {
+      if (ev.flowId) {
+        markFlowRunning(ev.sessionId, ev.flowId, ev.type === "flow_progress");
+      }
+      flowTick.value = {
+        sessionId: ev.sessionId,
+        type: ev.type,
+        flowId: ev.flowId,
+        nodeId: ev.nodeId,
+        message: ev.message,
+      };
     }
   }
 
@@ -127,6 +142,7 @@ export const useSessionStore = defineStore("session", () => {
       await invoke("session_remove", { id });
       delete configs.value[id];
       delete logsBySession.value[id];
+      delete runningBySession.value[id];
       if (activeSessionId.value === id) {
         activeSessionId.value = null;
       }
@@ -184,6 +200,7 @@ export const useSessionStore = defineStore("session", () => {
     try {
       const summary = await invoke<SessionSummary>("session_close", { id });
       applySummary(summary);
+      runningBySession.value = { ...runningBySession.value, [id]: [] };
       await loadLogs(id);
       return summary;
     } finally {
@@ -193,6 +210,26 @@ export const useSessionStore = defineStore("session", () => {
 
   function setActive(id: string | null) {
     activeSessionId.value = id;
+  }
+
+  function markFlowRunning(sessionId: string, flowId: string, on: boolean) {
+    const cur = new Set(runningBySession.value[sessionId] ?? []);
+    if (on) cur.add(flowId);
+    else cur.delete(flowId);
+    runningBySession.value = { ...runningBySession.value, [sessionId]: [...cur] };
+  }
+
+  function isFlowRunning(sessionId: string, flowId: string) {
+    return (runningBySession.value[sessionId] ?? []).includes(flowId);
+  }
+
+  async function syncRunningFlows(sessionId: string) {
+    try {
+      const ids = await invoke<string[]>("session_running_flows", { id: sessionId });
+      runningBySession.value = { ...runningBySession.value, [sessionId]: ids };
+    } catch {
+      /* session closed / not open */
+    }
   }
 
   async function persistState() {
@@ -209,6 +246,7 @@ export const useSessionStore = defineStore("session", () => {
       await invoke<number>("scenario_import", { json });
       configs.value = {};
       logsBySession.value = {};
+      runningBySession.value = {};
       activeSessionId.value = null;
       await refreshList();
       // Reload configs for all sessions
@@ -236,6 +274,11 @@ export const useSessionStore = defineStore("session", () => {
     activeLogs,
     secs4rsVersion,
     busy,
+    flowTick,
+    runningBySession,
+    markFlowRunning,
+    isFlowRunning,
+    syncRunningFlows,
     startEventListen,
     loadVersion,
     refreshList,

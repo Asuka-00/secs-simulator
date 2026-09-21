@@ -3,6 +3,7 @@
 mod catalog;
 mod commands;
 mod error;
+mod flow;
 mod persistence;
 mod session;
 mod sml_bridge;
@@ -20,6 +21,9 @@ use commands::app::{
 use commands::catalog::{
     session_get_catalog, session_import_smd, session_new_blank_message, session_remove_message,
     session_send_message, session_set_catalog, session_upsert_message,
+};
+use commands::flow::{
+    flow_run, flow_stop, session_get_flows, session_running_flows, session_set_flows,
 };
 use commands::message::{
     session_clear_logs, session_export_logs, session_get_logs, session_send_sml, sml_parse,
@@ -84,6 +88,11 @@ pub fn run() {
             session_import_smd,
             session_new_blank_message,
             session_send_message,
+            session_get_flows,
+            session_set_flows,
+            flow_run,
+            flow_stop,
+            session_running_flows,
             scenario_export,
             scenario_import,
             scenario_export_path,

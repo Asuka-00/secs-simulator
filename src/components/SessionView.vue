@@ -20,6 +20,7 @@ import MessageLibrary from "./MessageLibrary.vue";
 import MessageLog from "./MessageLog.vue";
 import MessagePropertyDialog from "./MessagePropertyDialog.vue";
 import MessageBodyDialog from "./MessageBodyDialog.vue";
+import FlowWorkspace from "./flow/FlowWorkspace.vue";
 import { isHostToEquip, messageLeafLabel } from "../utils/messageTree";
 
 const { t } = useI18n();
@@ -43,6 +44,7 @@ const emit = defineEmits<{
 const catalog = ref<MessageCatalog>(emptyCatalog());
 const selectedId = ref<string | null>(null);
 const localBusy = ref(false);
+const tab = ref<"messages" | "flow">("messages");
 
 const propOpen = ref(false);
 const bodyOpen = ref(false);
@@ -251,7 +253,20 @@ function onSaveConfig(config: SessionConfig) {
       @close="emit('close')"
     />
 
-    <div class="workspace">
+    <div class="tab-bar">
+      <button
+        type="button"
+        :class="{ on: tab === 'messages' }"
+        @click="tab = 'messages'"
+      >
+        {{ t("workspace.messages") }}
+      </button>
+      <button type="button" :class="{ on: tab === 'flow' }" @click="tab = 'flow'">
+        {{ t("workspace.flow") }}
+      </button>
+    </div>
+
+    <div v-if="tab === 'messages'" class="workspace">
       <aside class="msg-col">
         <MessageLibrary
           :messages="catalog.messages"
@@ -315,6 +330,14 @@ function onSaveConfig(config: SessionConfig) {
       </section>
     </div>
 
+    <FlowWorkspace
+      v-if="tab === 'flow'"
+      :session-id="summary.id"
+      :catalog="catalog.messages"
+      :can-run="canSend"
+      @persist="emit('persist')"
+    />
+
     <MessagePropertyDialog
       v-model="propOpen"
       :message="editing"
@@ -331,9 +354,33 @@ function onSaveConfig(config: SessionConfig) {
 <style scoped>
 .session-view {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   height: 100%;
   min-height: 0;
+}
+
+.tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  flex-shrink: 0;
+}
+
+.tab-bar button {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.tab-bar button.on {
+  color: var(--text);
+  border-bottom-color: var(--arr-h2e-fg);
 }
 
 .workspace {

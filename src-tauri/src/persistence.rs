@@ -8,6 +8,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::catalog::MessageCatalog;
 use crate::error::{AppError, AppResult};
+use crate::flow::Flow;
 use crate::session::config::SessionConfig;
 
 pub const STATE_FILE: &str = "app-state.json";
@@ -54,6 +55,8 @@ pub struct SessionSnapshot {
     pub config: SessionConfig,
     #[serde(default)]
     pub catalog: MessageCatalog,
+    #[serde(default)]
+    pub flows: Vec<Flow>,
 }
 
 /// Full app state file in app_data_dir.
@@ -210,6 +213,7 @@ mod tests {
                     ..SessionConfig::default()
                 },
                 catalog: MessageCatalog::default(),
+                flows: vec![],
             }],
         };
         save_state_to(&path, &state).unwrap();
@@ -234,6 +238,7 @@ mod tests {
                     ..SessionConfig::default()
                 },
                 catalog: MessageCatalog::default(),
+                flows: vec![],
             }],
         };
         let json = scenario_to_json(&sc).unwrap();

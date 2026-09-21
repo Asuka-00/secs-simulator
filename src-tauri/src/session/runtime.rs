@@ -15,6 +15,7 @@ use crate::catalog::{
     new_shared_catalog, try_catalog_auto_reply, MessageCatalog, SharedCatalog,
 };
 use crate::error::{AppError, AppResult};
+use crate::flow::FlowRuntime;
 use crate::session::config::{ConnectionMode, Role, SessionConfig};
 use crate::session::log::{LogDirection, LogEntry};
 use crate::session::SharedSessionManager;
@@ -40,45 +41,47 @@ pub struct SessionEvent {
     pub rule_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sx_fy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flow_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_id: Option<String>,
 }
 
 impl SessionEvent {
-    pub fn state(session_id: impl Into<String>, open: bool, hsms: impl Into<String>) -> Self {
+    fn base(session_id: impl Into<String>, event_type: impl Into<String>) -> Self {
         Self {
             session_id: session_id.into(),
-            event_type: "state".into(),
-            open: Some(open),
-            hsms: Some(hsms.into()),
+            event_type: event_type.into(),
+            open: None,
+            hsms: None,
             message: None,
             entry: None,
             rule_id: None,
             sx_fy: None,
+            flow_id: None,
+            node_id: None,
+        }
+    }
+
+    pub fn state(session_id: impl Into<String>, open: bool, hsms: impl Into<String>) -> Self {
+        Self {
+            open: Some(open),
+            hsms: Some(hsms.into()),
+            ..Self::base(session_id, "state")
         }
     }
 
     pub fn error(session_id: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
-            session_id: session_id.into(),
-            event_type: "error".into(),
-            open: None,
-            hsms: None,
             message: Some(message.into()),
-            entry: None,
-            rule_id: None,
-            sx_fy: None,
+            ..Self::base(session_id, "error")
         }
     }
 
     pub fn log(session_id: impl Into<String>, entry: LogEntry) -> Self {
         Self {
-            session_id: session_id.into(),
-            event_type: "log".into(),
-            open: None,
-            hsms: None,
-            message: None,
             entry: Some(entry),
-            rule_id: None,
-            sx_fy: None,
+            ..Self::base(session_id, "log")
         }
     }
 
@@ -88,27 +91,42 @@ impl SessionEvent {
         sx_fy: impl Into<String>,
     ) -> Self {
         Self {
-            session_id: session_id.into(),
-            event_type: "rule_hit".into(),
-            open: None,
-            hsms: None,
-            message: None,
-            entry: None,
             rule_id: Some(rule_id.into()),
             sx_fy: Some(sx_fy.into()),
+            ..Self::base(session_id, "rule_hit")
         }
     }
 
     pub fn send_done(session_id: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
-            session_id: session_id.into(),
-            event_type: "send_done".into(),
-            open: None,
-            hsms: None,
             message: Some(message.into()),
-            entry: None,
-            rule_id: None,
-            sx_fy: None,
+            ..Self::base(session_id, "send_done")
+        }
+    }
+
+    pub fn flow_progress(
+        session_id: impl Into<String>,
+        flow_id: impl Into<String>,
+        node_id: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            flow_id: Some(flow_id.into()),
+            node_id: Some(node_id.into()),
+            message: Some(message.into()),
+            ..Self::base(session_id, "flow_progress")
+        }
+    }
+
+    pub fn flow_done(
+        session_id: impl Into<String>,
+        flow_id: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            flow_id: Some(flow_id.into()),
+            message: Some(message.into()),
+            ..Self::base(session_id, "flow_done")
         }
     }
 }
@@ -220,6 +238,7 @@ fn attach_auto_reply(
     pending_primary: Arc<Mutex<Option<HsmsMessage>>>,
     manager: SharedSessionManager,
     app: Option<AppHandle>,
+    flow_rt: Option<FlowRuntime>,
 ) {
     let c = Arc::clone(comm);
     let sid = session_id;
@@ -240,13 +259,13 @@ fn attach_auto_reply(
                 LogEntry::system(format!("{note} for {sx}")),
             );
             emit_session_event(&app, SessionEvent::rule_hit(&sid, "catalog", sx));
-            return;
-        }
-        // Remember W-bit primary so the user can send the secondary as a real reply.
-        if msg.wbit() && msg.get_function() % 2 == 1 {
+        } else if msg.wbit() && msg.get_function() % 2 == 1 {
             if let Ok(mut g) = pending_primary.lock() {
                 *g = Some(msg.clone());
             }
+        }
+        if let Some(rt) = &flow_rt {
+            rt.on_inbound(msg);
         }
     });
 }
@@ -268,6 +287,7 @@ impl SessionRuntime {
         catalog: MessageCatalog,
         manager: SharedSessionManager,
         app: Option<AppHandle>,
+        flow_rt: Option<FlowRuntime>,
     ) -> AppResult<Self> {
         let hsms_cfg = build_hsms_config(cfg)?;
         let comm = Arc::new(HsmsSsCommunicator::new_instance(hsms_cfg));
@@ -284,6 +304,7 @@ impl SessionRuntime {
             Arc::clone(&pending_primary),
             Arc::clone(&manager),
             app.clone(),
+            flow_rt.clone(),
         );
 
         push_log(
@@ -307,6 +328,7 @@ impl SessionRuntime {
             let sid = session_id.clone();
             let mgr = Arc::clone(&manager);
             let app_h = app.clone();
+            let fr = flow_rt.clone();
             comm.communicate_state_prop().add_change_listener(move |st| {
                 let label = hsms_state_label(*st).to_string();
                 let open_flag = {
@@ -321,7 +343,10 @@ impl SessionRuntime {
                         return;
                     }
                 };
-                emit_session_event(&app_h, SessionEvent::state(&sid, open_flag, label));
+                emit_session_event(&app_h, SessionEvent::state(&sid, open_flag, &label));
+                if let Some(rt) = &fr {
+                    rt.on_hsms(&label);
+                }
             });
         }
 
@@ -344,6 +369,7 @@ impl SessionRuntime {
             let mgr = Arc::clone(&manager);
             let app_h = app.clone();
             let c = Arc::clone(&comm);
+            let fr = flow_rt.clone();
             thread::spawn(move || {
                 let mut last = String::new();
                 loop {
@@ -366,7 +392,10 @@ impl SessionRuntime {
                                 s.hsms_state = label.clone();
                             }
                         }
-                        emit_session_event(&app_h, SessionEvent::state(&sid, true, label));
+                        emit_session_event(&app_h, SessionEvent::state(&sid, true, &label));
+                        if let Some(rt) = &fr {
+                            rt.on_hsms(&label);
+                        }
                     }
                     thread::sleep(Duration::from_millis(100));
                 }

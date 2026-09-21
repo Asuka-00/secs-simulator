@@ -84,11 +84,13 @@ export interface MessageCatalog {
 /** Payload of Tauri event `session-event`. */
 export interface SessionEvent {
   sessionId: string;
-  type: "state" | "error" | "log" | "rule_hit" | "send_done";
+  type: "state" | "error" | "log" | "rule_hit" | "send_done" | "flow_progress" | "flow_done";
   open?: boolean;
   hsms?: string;
   message?: string;
   entry?: LogEntry;
+  flowId?: string;
+  nodeId?: string;
 }
 
 export function defaultSessionConfig(overrides?: Partial<SessionConfig>): SessionConfig {

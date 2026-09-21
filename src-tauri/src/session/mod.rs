@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 use crate::catalog::{MessageCatalog, PrefabMessage};
 use crate::error::{AppError, AppResult};
+use crate::flow::{Flow, FlowRuntime};
 use crate::persistence::{
     AppPersistState, AppSettings, ScenarioFile, SessionSnapshot,
 };
@@ -41,7 +42,9 @@ pub struct Session {
     pub hsms_state: String,
     pub logs: SessionLog,
     pub catalog: MessageCatalog,
+    pub flows: Vec<Flow>,
     runtime: Option<SessionRuntime>,
+    flow_rt: Option<FlowRuntime>,
 }
 
 impl Session {
@@ -87,6 +90,7 @@ impl SessionManager {
                 id: s.id.clone(),
                 config: s.config.clone(),
                 catalog: s.catalog.clone(),
+                flows: s.flows.clone(),
             })
             .collect();
         sessions.sort_by(|a, b| a.config.name.cmp(&b.config.name).then(a.id.cmp(&b.id)));
@@ -123,7 +127,9 @@ impl SessionManager {
                 hsms_state: "NotConnected".into(),
                 logs: SessionLog::new(self.settings.log_capacity.max(1)),
                 catalog: snap.catalog,
+                flows: snap.flows,
                 runtime: None,
+                flow_rt: None,
             };
             self.sessions.insert(snap.id, session);
         }
@@ -168,7 +174,9 @@ impl SessionManager {
             hsms_state: "NotConnected".into(),
             logs: SessionLog::new(capacity),
             catalog: crate::catalog::default_catalog(),
+            flows: Vec::new(),
             runtime: None,
+            flow_rt: None,
         };
         let summary = session.summary();
         self.sessions.insert(id, session);
@@ -295,6 +303,83 @@ impl SessionManager {
             .ok_or_else(|| AppError::Message(format!("session not found: {id}")))
     }
 
+    pub fn get_flows(&self, id: &str) -> AppResult<Vec<Flow>> {
+        self.sessions
+            .get(id)
+            .map(|s| s.flows.clone())
+            .ok_or_else(|| AppError::Message(format!("session not found: {id}")))
+    }
+
+    pub fn set_flows(&mut self, id: &str, flows: Vec<Flow>) -> AppResult<()> {
+        let session = self
+            .sessions
+            .get_mut(id)
+            .ok_or_else(|| AppError::Message(format!("session not found: {id}")))?;
+        session.flows = flows.clone();
+        if let Some(rt) = session.flow_rt.as_ref() {
+            rt.set_flows(flows);
+        }
+        Ok(())
+    }
+
+    pub fn flow_run(
+        manager: &SharedSessionManager,
+        id: &str,
+        flow_id: &str,
+    ) -> AppResult<()> {
+        let rt = {
+            let guard = manager
+                .lock()
+                .map_err(|e| AppError::Message(e.to_string()))?;
+            let session = guard
+                .session_ref(id)
+                .ok_or_else(|| AppError::Message(format!("session not found: {id}")))?;
+            if !session.open {
+                return Err(AppError::Message("session is not open".into()));
+            }
+            session
+                .flow_rt
+                .clone()
+                .ok_or_else(|| AppError::Message("session is not open".into()))?
+        };
+        rt.start_manual(flow_id)
+    }
+
+    pub fn flow_stop(
+        manager: &SharedSessionManager,
+        id: &str,
+        flow_id: &str,
+    ) -> AppResult<()> {
+        let guard = manager
+            .lock()
+            .map_err(|e| AppError::Message(e.to_string()))?;
+        let session = guard
+            .session_ref(id)
+            .ok_or_else(|| AppError::Message(format!("session not found: {id}")))?;
+        if let Some(rt) = session.flow_rt.as_ref() {
+            rt.stop_flow(flow_id);
+        }
+        Ok(())
+    }
+
+    pub fn flow_running(manager: &SharedSessionManager, id: &str, flow_id: &str) -> bool {
+        manager
+            .lock()
+            .ok()
+            .and_then(|g| g.session_ref(id).and_then(|s| s.flow_rt.clone()))
+            .map(|rt| rt.is_running(flow_id))
+            .unwrap_or(false)
+    }
+
+    pub fn running_flow_ids(manager: &SharedSessionManager, id: &str) -> Vec<String> {
+        manager
+            .lock()
+            .ok()
+            .and_then(|g| g.session_ref(id).and_then(|s| s.flow_rt.clone()))
+            .map(|rt| rt.running_ids())
+            .unwrap_or_default()
+    }
+
     pub fn clear_logs(&mut self, id: &str) -> AppResult<()> {
         let session = self
             .sessions
@@ -310,7 +395,7 @@ impl SessionManager {
         id: &str,
         app: Option<AppHandle>,
     ) -> AppResult<SessionSummary> {
-        let (config, catalog) = {
+        let (config, catalog, flows) = {
             let mut guard = manager
                 .lock()
                 .map_err(|e| AppError::Message(e.to_string()))?;
@@ -321,18 +406,25 @@ impl SessionManager {
             if session.open {
                 return Err(AppError::Message("session already open".into()));
             }
-            (session.config.clone(), session.catalog.clone())
+            (
+                session.config.clone(),
+                session.catalog.clone(),
+                session.flows.clone(),
+            )
         };
 
+        let flow_rt = FlowRuntime::new(id, flows, Arc::clone(manager), app.clone());
         let runtime = match SessionRuntime::start(
             id.to_string(),
             &config,
             catalog,
             Arc::clone(manager),
             app.clone(),
+            Some(flow_rt.clone()),
         ) {
             Ok(rt) => rt,
             Err(e) => {
+                flow_rt.shutdown();
                 emit_session_event(&app, SessionEvent::error(id, e.to_string()));
                 return Err(e);
             }
@@ -349,6 +441,10 @@ impl SessionManager {
             session.open = true;
             session.hsms_state = runtime.hsms_state();
             session.runtime = Some(runtime);
+            if session.hsms_state == "Selected" {
+                flow_rt.on_hsms("Selected");
+            }
+            session.flow_rt = Some(flow_rt);
             session.summary()
         };
 
@@ -365,7 +461,7 @@ impl SessionManager {
         id: &str,
         app: Option<AppHandle>,
     ) -> AppResult<SessionSummary> {
-        let runtime = {
+        let (runtime, flow_rt) = {
             let mut guard = manager
                 .lock()
                 .map_err(|e| AppError::Message(e.to_string()))?;
@@ -377,9 +473,12 @@ impl SessionManager {
                 return Err(AppError::Message("session is not open".into()));
             }
             session.open = false;
-            session.runtime.take()
+            (session.runtime.take(), session.flow_rt.take())
         };
 
+        if let Some(rt) = flow_rt {
+            rt.shutdown();
+        }
         if let Some(rt) = runtime {
             rt.close();
         }
@@ -622,6 +721,7 @@ mod tests {
                             ..SessionConfig::default()
                         },
                         catalog: MessageCatalog::default(),
+                        flows: vec![],
                     },
                     SessionSnapshot {
                         id: "h1".into(),
@@ -632,6 +732,7 @@ mod tests {
                             ..SessionConfig::default()
                         },
                         catalog: MessageCatalog::default(),
+                        flows: vec![],
                     },
                 ],
             })
@@ -932,6 +1033,222 @@ mod tests {
             .expect("Host T3")
             .expect("S6F12 reply");
         assert_eq!((reply.get_stream(), reply.get_function()), (6, 12));
+
+        SessionManager::close_session(&manager, &host_id, None).unwrap();
+        SessionManager::close_session(&manager, &equip_id, None).unwrap();
+    }
+
+    fn wait_data_sf(manager: &SharedSessionManager, id: &str, stream: u8, function: u8) -> bool {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            let g = manager.lock().unwrap();
+            if g.session_ref(id).unwrap().logs.count_data_sf(stream, function) >= 1 {
+                return true;
+            }
+            drop(g);
+            thread::sleep(Duration::from_millis(40));
+        }
+        false
+    }
+
+    fn wait_flow_idle(manager: &SharedSessionManager, id: &str, flow_id: &str) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(8);
+        let mut saw_run = false;
+        while std::time::Instant::now() < deadline {
+            let running = SessionManager::flow_running(manager, id, flow_id);
+            if running {
+                saw_run = true;
+            } else if saw_run {
+                return;
+            }
+            thread::sleep(Duration::from_millis(30));
+        }
+    }
+
+    fn parse_flow(v: serde_json::Value) -> crate::flow::Flow {
+        serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn flow_linear_send_s1f13() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        let manager = new_shared();
+        let (equip_id, host_id) = seed_pair(&manager, port);
+
+        {
+            let mut g = manager.lock().unwrap();
+            g.set_flows(
+                &host_id,
+                vec![parse_flow(serde_json::json!({
+                    "id": "lin",
+                    "name": "lin",
+                    "enabled": true,
+                    "nodes": [
+                        {"id":"t1","type":"trigger","position":{"x":0,"y":0},"data":{"kind":"manual"}},
+                        {"id":"s13","type":"send","position":{"x":0,"y":80},"data":{"stream":1,"function":13,"direction":"H->E"}}
+                    ],
+                    "edges": [{"id":"e1","source":"t1","target":"s13"}]
+                }))],
+            )
+            .unwrap();
+        }
+
+        SessionManager::open_session(&manager, &equip_id, None).unwrap();
+        thread::sleep(Duration::from_millis(150));
+        SessionManager::open_session(&manager, &host_id, None).unwrap();
+        assert!(wait_until_selected(&manager, &host_id, Duration::from_secs(5)));
+
+        SessionManager::flow_run(&manager, &host_id, "lin").unwrap();
+        wait_flow_idle(&manager, &host_id, "lin");
+        assert!(wait_data_sf(&manager, &host_id, 1, 13), "Host did not send S1F13");
+        assert!(wait_data_sf(&manager, &equip_id, 1, 13), "Equip did not recv S1F13");
+
+        SessionManager::close_session(&manager, &host_id, None).unwrap();
+        SessionManager::close_session(&manager, &equip_id, None).unwrap();
+    }
+
+    #[test]
+    fn flow_branch_ack_then_s1f17() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        let manager = new_shared();
+        let (equip_id, host_id) = seed_pair(&manager, port);
+
+        {
+            let mut g = manager.lock().unwrap();
+            g.set_flows(
+                &host_id,
+                vec![parse_flow(serde_json::json!({
+                    "id": "online",
+                    "name": "online",
+                    "enabled": true,
+                    "nodes": [
+                        {"id":"t1","type":"trigger","position":{"x":0,"y":0},"data":{"kind":"manual"}},
+                        {"id":"s13","type":"send","position":{"x":0,"y":80},"data":{"stream":1,"function":13,"direction":"H->E"}},
+                        {"id":"br","type":"branch","position":{"x":0,"y":160},"data":{
+                            "combinator":"and",
+                            "clauses":[{"field":"ack","op":"eq","value":"0"}]
+                        }},
+                        {"id":"s17","type":"send","position":{"x":0,"y":240},"data":{"stream":1,"function":17,"direction":"H->E"}}
+                    ],
+                    "edges": [
+                        {"id":"e1","source":"t1","target":"s13"},
+                        {"id":"e2","source":"s13","target":"br"},
+                        {"id":"e3","source":"br","sourceHandle":"then","target":"s17"}
+                    ]
+                }))],
+            )
+            .unwrap();
+        }
+
+        SessionManager::open_session(&manager, &equip_id, None).unwrap();
+        thread::sleep(Duration::from_millis(150));
+        SessionManager::open_session(&manager, &host_id, None).unwrap();
+        assert!(wait_until_selected(&manager, &host_id, Duration::from_secs(5)));
+
+        SessionManager::flow_run(&manager, &host_id, "online").unwrap();
+        wait_flow_idle(&manager, &host_id, "online");
+        assert!(wait_data_sf(&manager, &host_id, 1, 17), "branch then should send S1F17");
+
+        SessionManager::close_session(&manager, &host_id, None).unwrap();
+        SessionManager::close_session(&manager, &equip_id, None).unwrap();
+    }
+
+    #[test]
+    fn flow_on_inbound_s1f1_sends_s5f1() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        let manager = new_shared();
+        let (equip_id, host_id) = seed_pair(&manager, port);
+
+        {
+            let mut g = manager.lock().unwrap();
+            g.set_flows(
+                &equip_id,
+                vec![parse_flow(serde_json::json!({
+                    "id": "alm",
+                    "name": "alm",
+                    "enabled": true,
+                    "nodes": [
+                        {"id":"t1","type":"trigger","position":{"x":0,"y":0},"data":{"kind":"onInbound","stream":1,"function":1}},
+                        {"id":"s5","type":"send","position":{"x":0,"y":80},"data":{"stream":5,"function":1,"direction":"H<-E"}}
+                    ],
+                    "edges": [{"id":"e1","source":"t1","target":"s5"}]
+                }))],
+            )
+            .unwrap();
+        }
+
+        SessionManager::open_session(&manager, &equip_id, None).unwrap();
+        thread::sleep(Duration::from_millis(150));
+        SessionManager::open_session(&manager, &host_id, None).unwrap();
+        assert!(wait_until_selected(&manager, &host_id, Duration::from_secs(5)));
+
+        SessionManager::send_sml(&manager, &host_id, "S1F1 W.").unwrap();
+        assert!(wait_data_sf(&manager, &equip_id, 5, 1), "onInbound should send S5F1");
+
+        SessionManager::close_session(&manager, &host_id, None).unwrap();
+        SessionManager::close_session(&manager, &equip_id, None).unwrap();
+    }
+
+    #[test]
+    fn flow_stop_unblocks_wait() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        let manager = new_shared();
+        let (equip_id, host_id) = seed_pair(&manager, port);
+
+        {
+            let mut g = manager.lock().unwrap();
+            g.set_flows(
+                &host_id,
+                vec![parse_flow(serde_json::json!({
+                    "id": "waity",
+                    "name": "waity",
+                    "enabled": false,
+                    "nodes": [
+                        {"id":"t1","type":"trigger","position":{"x":0,"y":0},"data":{"kind":"manual"}},
+                        {"id":"w1","type":"wait","position":{"x":0,"y":80},"data":{"stream":9,"function":1,"timeoutMs":45000}}
+                    ],
+                    "edges": [{"id":"e1","source":"t1","target":"w1"}]
+                }))],
+            )
+            .unwrap();
+        }
+
+        SessionManager::open_session(&manager, &equip_id, None).unwrap();
+        thread::sleep(Duration::from_millis(150));
+        SessionManager::open_session(&manager, &host_id, None).unwrap();
+        assert!(wait_until_selected(&manager, &host_id, Duration::from_secs(5)));
+
+        SessionManager::flow_run(&manager, &host_id, "waity").unwrap();
+        let start_deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while !SessionManager::flow_running(&manager, &host_id, "waity") {
+            assert!(
+                std::time::Instant::now() < start_deadline,
+                "flow did not start"
+            );
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(
+            SessionManager::running_flow_ids(&manager, &host_id),
+            vec!["waity".to_string()]
+        );
+
+        SessionManager::flow_stop(&manager, &host_id, "waity").unwrap();
+        let idle_deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while SessionManager::flow_running(&manager, &host_id, "waity") {
+            assert!(
+                std::time::Instant::now() < idle_deadline,
+                "stop did not unblock wait"
+            );
+            thread::sleep(Duration::from_millis(20));
+        }
 
         SessionManager::close_session(&manager, &host_id, None).unwrap();
         SessionManager::close_session(&manager, &equip_id, None).unwrap();
