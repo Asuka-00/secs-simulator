@@ -24,6 +24,8 @@ jobs:
             args: ""
 
     runs-on: ${{ matrix.platform }}
+    env:
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: updater
     steps:
       - uses: actions/checkout@v5
 
@@ -56,31 +58,32 @@ jobs:
       - name: install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: prove updater key signs
+      - name: write signing key file
         shell: bash
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          RAW_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
-          KEY_LEN=$(printf '%s' "${TAURI_SIGNING_PRIVATE_KEY}" | wc -c | tr -d ' ')
-          PASS_LEN=$(printf '%s' "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD}" | wc -c | tr -d ' ')
-          echo "key_chars=${KEY_LEN} pass_chars=${PASS_LEN} (key should be ~300+)"
-          if [ "${KEY_LEN}" -lt 80 ]; then
-            echo "TAURI_SIGNING_PRIVATE_KEY is missing or too short. Paste ALL of ~/.tauri/secs-simulator.key"
+          KEY_FILE="${RUNNER_TEMP}/tauri-signing.key"
+          printf '%s' "${RAW_KEY}" | tr -d '[:space:]' > "${KEY_FILE}"
+          BYTES=$(wc -c < "${KEY_FILE}" | tr -d '[:space:]')
+          echo "wrote ${BYTES} bytes to key file (expect 348)"
+          if [ "${BYTES}" -lt 200 ]; then
+            echo "Repository secret TAURI_SIGNING_PRIVATE_KEY is missing or truncated."
+            echo "Settings → Secrets and variables → Actions → Repository secrets (not Environment)."
             exit 1
           fi
-          if [ "${PASS_LEN}" -lt 1 ]; then
-            echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD is empty. Value must be: updater"
-            exit 1
-          fi
+          echo "TAURI_SIGNING_PRIVATE_KEY_PATH=${KEY_FILE}" >> "${GITHUB_ENV}"
+
+      - name: verify signing key
+        shell: bash
+        run: |
           printf 'test' > dummy.bin
           pnpm tauri signer sign dummy.bin
 
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY_PATH: ${{ env.TAURI_SIGNING_PRIVATE_KEY_PATH }}
         with:
           tagName: v__VERSION__
           releaseName: "SECS Simulator v__VERSION__"
