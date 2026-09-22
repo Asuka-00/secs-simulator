@@ -16,6 +16,8 @@ dist-ssr
 # Rust / Tauri
 src-tauri/target
 src-tauri/gen/schemas
+*.key
+*.key.pub
 
 # Editor / OS
 .vscode/*

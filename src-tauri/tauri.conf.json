@@ -23,8 +23,17 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZGOTE2Q0U3NjZCQUVCOEEKUldTSzY3cG01MnlSYjBuTjdnUFFoZVgwZ0NGSCtCUlc5YzlWc1RVRzhYU1RaWGUrTUYra3pjMzkK",
+      "endpoints": [
+        "https://github.com/Asuka-00/secs-simulator/releases/latest/download/latest.json"
+      ]
+    }
+  },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "icon": [
       "icons/32x32.png",

@@ -14,6 +14,13 @@ export default {
     theme: "Theme",
     themeLight: "Light",
     themeDark: "Dark",
+    checkUpdate: "Check for updates",
+    updateTitle: "Update available",
+    updateBody: "Version {version}\n{notes}",
+    updateNoNotes: "No release notes",
+    updateNow: "Update now",
+    updateNone: "Already up to date",
+    updateFailed: "Update check failed: {error}",
   },
   msg: {
     initFailed: "Init failed: {error}",

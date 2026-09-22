@@ -8,6 +8,7 @@ import { useI18n } from "vue-i18n";
 import { ElMessage, ElMessageBox } from "element-plus";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
 import en from "element-plus/es/locale/lang/en";
+import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useSessionStore } from "./stores/session";
 import SessionView from "./components/SessionView.vue";
@@ -18,10 +19,43 @@ import {
   setAppTheme,
   type AppTheme,
 } from "./theme";
+import { checkAppUpdate } from "./utils/updater";
 
 const { t, locale } = useI18n();
 const store = useSessionStore();
+const appVersion = ref("");
+const updateBusy = ref(false);
 let unlistenError: UnlistenFn | null = null;
+
+function isUserCancel(e: unknown): boolean {
+  return e === "cancel" || (typeof e === "object" && e !== null && "action" in e && (e as { action: string }).action === "cancel");
+}
+
+async function runUpdateCheck(silent: boolean) {
+  if (updateBusy.value) return;
+  updateBusy.value = true;
+  try {
+    const result = await checkAppUpdate();
+    if (result.kind === "none") {
+      if (!silent) ElMessage.info(t("app.updateNone"));
+      return;
+    }
+    await ElMessageBox.confirm(
+      t("app.updateBody", {
+        version: result.version,
+        notes: result.notes || t("app.updateNoNotes"),
+      }),
+      t("app.updateTitle"),
+      { type: "info", confirmButtonText: t("app.updateNow") },
+    );
+    await result.install();
+  } catch (e) {
+    if (isUserCancel(e)) return;
+    if (!silent) ElMessage.error(t("app.updateFailed", { error: String(e) }));
+  } finally {
+    updateBusy.value = false;
+  }
+}
 
 const localeModel = computed({
   get: () => locale.value as AppLocale,
@@ -48,6 +82,14 @@ onMounted(async () => {
       }
     });
     await store.loadVersion();
+    try {
+      appVersion.value = await getVersion();
+    } catch {
+      /* web preview has no tauri app version */
+    }
+    if (!import.meta.env.DEV) {
+      void runUpdateCheck(true);
+    }
     await store.refreshList();
     if (store.sessions.length === 0) {
       await store.createSession({
@@ -209,6 +251,14 @@ async function onPersist() {
             <el-option :label="t('app.zh')" value="zh-CN" />
             <el-option :label="t('app.en')" value="en-US" />
           </el-select>
+          <el-button
+            size="small"
+            :loading="updateBusy"
+            @click="runUpdateCheck(false)"
+          >
+            {{ t("app.checkUpdate") }}
+          </el-button>
+          <el-tag v-if="appVersion" size="small" effect="plain">v{{ appVersion }}</el-tag>
           <el-tag v-if="store.secs4rsVersion" type="success" size="small" effect="dark">
             secs4rs {{ store.secs4rsVersion }}
           </el-tag>

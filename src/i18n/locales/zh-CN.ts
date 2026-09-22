@@ -14,6 +14,13 @@ export default {
     theme: "主题",
     themeLight: "浅色",
     themeDark: "深色",
+    checkUpdate: "检查更新",
+    updateTitle: "发现新版本",
+    updateBody: "新版本 {version}\n{notes}",
+    updateNoNotes: "无更新说明",
+    updateNow: "立即更新",
+    updateNone: "已是最新版本",
+    updateFailed: "检查更新失败：{error}",
   },
   msg: {
     initFailed: "初始化失败：{error}",
