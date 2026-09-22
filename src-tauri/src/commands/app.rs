@@ -12,12 +12,6 @@ fn lock_err(e: impl ToString) -> crate::error::AppError {
     crate::error::AppError::Message(e.to_string())
 }
 
-/// Smoke command: prove vendored `secs4rs` package links correctly.
-#[tauri::command]
-pub fn secs4rs_version() -> String {
-    secs4rs::VERSION.to_string()
-}
-
 #[tauri::command]
 pub fn app_get_settings(
     manager: tauri::State<'_, SharedSessionManager>,

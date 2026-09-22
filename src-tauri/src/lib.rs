@@ -16,7 +16,7 @@ mod rules;
 
 use commands::app::{
     app_get_settings, app_get_state, app_load_state, app_local_ipv4, app_save_state,
-    app_set_settings, secs4rs_version,
+    app_set_settings,
 };
 use commands::catalog::{
     session_get_catalog, session_import_smd, session_new_blank_message, session_remove_message,
@@ -64,7 +64,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            secs4rs_version,
             app_get_settings,
             app_set_settings,
             app_save_state,

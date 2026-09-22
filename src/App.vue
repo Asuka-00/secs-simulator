@@ -81,7 +81,6 @@ onMounted(async () => {
         ElMessage.success(`[${e.payload.sessionId.slice(0, 8)}] ${e.payload.message}`);
       }
     });
-    await store.loadVersion();
     try {
       appVersion.value = await getVersion();
     } catch {
@@ -259,9 +258,6 @@ async function onPersist() {
             {{ t("app.checkUpdate") }}
           </el-button>
           <el-tag v-if="appVersion" size="small" effect="plain">v{{ appVersion }}</el-tag>
-          <el-tag v-if="store.secs4rsVersion" type="success" size="small" effect="dark">
-            secs4rs {{ store.secs4rsVersion }}
-          </el-tag>
         </div>
       </header>
 

@@ -11,7 +11,7 @@ const sx = computed(() => `S${props.data.stream ?? "?"}F${props.data.function ??
 </script>
 
 <template>
-  <div class="fn wait">
+  <div class="fn wait" @dragover.prevent>
     <Handle type="target" :position="Position.Top" />
     <div class="k">{{ t("flow.nodeWait") }}</div>
     <div class="v">{{ sx }}</div>

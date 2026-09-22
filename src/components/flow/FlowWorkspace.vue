@@ -46,8 +46,20 @@ const nodes = ref<any[]>([]);
 const edges = ref<any[]>([]);
 const filter = ref("");
 const saving = ref(false);
+const draggingSend = ref(false);
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let skipWatch = false;
+
+type DropPayload = {
+  kind: string;
+  type?: FlowNodeType;
+  messageId?: string;
+  stream?: number;
+  function?: number;
+  direction?: string;
+  messageName?: string;
+};
+let dragPayload: DropPayload | null = null;
 
 const flowCanvasId = computed(() => `flow-${props.sessionId}`);
 const { screenToFlowCoordinate, addNodes, addEdges, onConnect, removeEdges } = useVueFlow({
@@ -298,19 +310,13 @@ async function stop() {
   }
 }
 
-type DropPayload = {
-  kind: string;
-  type?: FlowNodeType;
-  messageId?: string;
-  stream?: number;
-  function?: number;
-  direction?: string;
-  messageName?: string;
-};
-
 function setDrag(ev: DragEvent, payload: DropPayload) {
+  dragPayload = payload;
+  draggingSend.value = payload.kind === "send";
   if (!ev.dataTransfer) return;
-  ev.dataTransfer.setData("text/plain", JSON.stringify(payload));
+  const raw = JSON.stringify(payload);
+  ev.dataTransfer.setData("text/plain", raw);
+  ev.dataTransfer.setData(FLOW_DND, raw);
   ev.dataTransfer.effectAllowed = "copy";
 }
 
@@ -327,6 +333,85 @@ function dragMsg(ev: DragEvent, m: PrefabMessage) {
     direction: m.direction,
     messageName: m.messageName,
   });
+}
+
+function endDrag() {
+  draggingSend.value = false;
+  window.setTimeout(() => {
+    dragPayload = null;
+  }, 0);
+}
+
+function readPayload(ev: DragEvent): DropPayload | null {
+  const raw =
+    ev.dataTransfer?.getData(FLOW_DND) ||
+    ev.dataTransfer?.getData("text/plain") ||
+    "";
+  if (raw) {
+    try {
+      return JSON.parse(raw) as DropPayload;
+    } catch {
+      /* Tauri/WebKit may empty dataTransfer; use dragstart snapshot */
+    }
+  }
+  return dragPayload;
+}
+
+function sendFields(p: DropPayload): Record<string, unknown> {
+  return {
+    messageId: p.messageId,
+    stream: p.stream,
+    function: p.function,
+    direction: p.direction,
+    messageName: p.messageName,
+  };
+}
+
+function eventEl(ev: Event): HTMLElement | null {
+  const t = ev.target;
+  if (t instanceof HTMLElement) return t;
+  if (t instanceof Text) return t.parentElement;
+  return null;
+}
+
+function applyCatalogToNode(id: string, p: DropPayload): boolean {
+  const n = nodes.value.find((x) => x.id === id);
+  if (!n) return false;
+  if (n.type === "send") {
+    nodes.value = nodes.value.map((x) =>
+      x.id === id ? { ...x, data: { ...x.data, ...sendFields(p) }, selected: true } : { ...x, selected: false },
+    );
+    edges.value = edges.value.map((e) => (e.selected ? { ...e, selected: false } : e));
+    return true;
+  }
+  if (n.type === "wait") {
+    nodes.value = nodes.value.map((x) =>
+      x.id === id
+        ? { ...x, data: { ...x.data, stream: p.stream, function: p.function }, selected: true }
+        : { ...x, selected: false },
+    );
+    edges.value = edges.value.map((e) => (e.selected ? { ...e, selected: false } : e));
+    return true;
+  }
+  if (n.type === "trigger" && (n.data as { kind?: string }).kind === "onInbound") {
+    nodes.value = nodes.value.map((x) =>
+      x.id === id
+        ? { ...x, data: { ...x.data, stream: p.stream, function: p.function }, selected: true }
+        : { ...x, selected: false },
+    );
+    edges.value = edges.value.map((e) => (e.selected ? { ...e, selected: false } : e));
+    return true;
+  }
+  return false;
+}
+
+function nodeIdFromEvent(ev: DragEvent): string | null {
+  return eventEl(ev)?.closest(".vue-flow__node")?.getAttribute("data-id") ?? null;
+}
+
+function onDragOver(ev: DragEvent) {
+  ev.preventDefault();
+  if (ev.dataTransfer) ev.dataTransfer.dropEffect = "copy";
 }
 
 function dropPos(ev?: DragEvent) {
@@ -383,21 +468,20 @@ async function addSend(p: DropPayload, ev?: DragEvent) {
 async function onDrop(ev: DragEvent) {
   ev.preventDefault();
   ev.stopPropagation();
-  const raw =
-    ev.dataTransfer?.getData("text/plain") ||
-    ev.dataTransfer?.getData(FLOW_DND) ||
-    "";
-  if (!raw) return;
-  let payload: DropPayload;
-  try {
-    payload = JSON.parse(raw) as DropPayload;
-  } catch {
-    return;
-  }
+  const payload = readPayload(ev);
+  if (!payload) return;
+  const onSide = !!eventEl(ev)?.closest(".side");
   if (payload.kind === "send") {
+    const hitId = nodeIdFromEvent(ev);
+    if (hitId && applyCatalogToNode(hitId, payload)) return;
+    if (onSide) {
+      const id = selected.value?.id;
+      if (id && applyCatalogToNode(id, payload)) return;
+    }
     await addSend(payload, ev);
     return;
   }
+  if (onSide) return;
   await addType(payload.type ?? "delay", ev);
 }
 
@@ -426,7 +510,13 @@ function onEdgeClick() {
 </script>
 
 <template>
-  <div class="flow-ws">
+  <div
+    class="flow-ws"
+    :class="{ 'is-dragging-send': draggingSend }"
+    @dragover.capture="onDragOver"
+    @drop.capture="onDrop"
+    @dragend.capture="endDrag"
+  >
     <header class="bar">
       <el-select
         v-model="activeId"
@@ -484,6 +574,7 @@ function onEdgeClick() {
           class="chip"
           draggable="true"
           @dragstart="dragType($event, item.type)"
+          @dragend="endDrag"
           @click="addType(item.type)"
         >
           {{ item.label }}
@@ -497,6 +588,7 @@ function onEdgeClick() {
             class="msg"
             draggable="true"
             @dragstart="dragMsg($event, m)"
+            @dragend="endDrag"
             @click="addSend({ kind: 'send', messageId: m.id, stream: m.stream, function: m.function, direction: m.direction, messageName: m.messageName })"
           >
             <span class="sf">{{ sxFy(m) }}</span>
@@ -505,7 +597,7 @@ function onEdgeClick() {
         </div>
       </aside>
 
-      <div class="canvas" @dragover.prevent @drop="onDrop">
+      <div class="canvas">
         <VueFlow
           :id="flowCanvasId"
           v-model:nodes="nodes"
@@ -515,15 +607,13 @@ function onEdgeClick() {
           :delete-key-code="['Backspace', 'Delete']"
           :default-edge-options="{ type: 'smoothstep', selectable: true, deletable: true }"
           @edge-click="onEdgeClick"
-          @dragover.prevent
-          @drop="onDrop"
         >
           <Background :gap="16" />
           <Controls />
         </VueFlow>
       </div>
 
-      <aside class="side">
+      <aside class="side" :class="{ 'is-drop': draggingSend }">
         <FlowInspector
           :node="selected"
           :edge="selectedEdge"
@@ -590,6 +680,12 @@ function onEdgeClick() {
 .side {
   border-right: none;
   border-left: 1px solid var(--border);
+}
+
+.side.is-drop,
+.flow-ws.is-dragging-send :deep(.vue-flow__node .fn.send) {
+  outline: 2px dashed var(--arr-h2e-fg);
+  outline-offset: -2px;
 }
 
 .sec {

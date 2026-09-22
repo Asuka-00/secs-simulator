@@ -20,7 +20,7 @@ const sx = computed(() =>
 </script>
 
 <template>
-  <div class="fn send">
+  <div class="fn send" @dragover.prevent>
     <Handle type="target" :position="Position.Top" />
     <div class="k">{{ t("flow.nodeSend") }}</div>
     <div class="v">{{ sx }}</div>

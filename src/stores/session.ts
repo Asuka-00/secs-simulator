@@ -17,7 +17,6 @@ export const useSessionStore = defineStore("session", () => {
   /** Per-session log buffer (live from events + initial pull). */
   const logsBySession = ref<Record<string, LogEntry[]>>({});
   const activeSessionId = ref<string | null>(null);
-  const secs4rsVersion = ref<string>("");
   const busy = ref(false);
   const flowTick = ref<FlowTick | null>(null);
   /** Backend-owned run set; survives Flow tab unmount. */
@@ -87,10 +86,6 @@ export const useSessionStore = defineStore("session", () => {
     unlisten = await listen<SessionEvent>("session-event", (e) => {
       applyEvent(e.payload);
     });
-  }
-
-  async function loadVersion() {
-    secs4rsVersion.value = await invoke<string>("secs4rs_version");
   }
 
   async function refreshList() {
@@ -272,7 +267,6 @@ export const useSessionStore = defineStore("session", () => {
     activeSession,
     activeConfig,
     activeLogs,
-    secs4rsVersion,
     busy,
     flowTick,
     runningBySession,
@@ -280,7 +274,6 @@ export const useSessionStore = defineStore("session", () => {
     isFlowRunning,
     syncRunningFlows,
     startEventListen,
-    loadVersion,
     refreshList,
     loadLogs,
     clearLogs,

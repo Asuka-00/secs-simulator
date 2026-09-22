@@ -146,10 +146,12 @@ function ancestorLabel(n: InspNode): string {
       </template>
 
       <template v-else-if="ty === 'send'">
-        <div class="hint">{{ t("flow.sendHint") }}</div>
-        <div class="mono">
-          S{{ node.data.stream ?? "?" }}F{{ node.data.function ?? "?" }}
-          <span v-if="node.data.messageName"> · {{ node.data.messageName }}</span>
+        <div class="send-drop">
+          <div class="hint">{{ t("flow.sendHint") }}</div>
+          <div class="mono">
+            S{{ node.data.stream ?? "?" }}F{{ node.data.function ?? "?" }}
+            <span v-if="node.data.messageName"> · {{ node.data.messageName }}</span>
+          </div>
         </div>
       </template>
 
@@ -302,6 +304,14 @@ function ancestorLabel(n: InspNode): string {
   gap: 6px;
   padding: 8px;
   border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+
+.send-drop {
+  min-height: 72px;
+  padding: 8px;
+  border: 1px dashed var(--border);
   border-radius: 6px;
   background: var(--surface-2);
 }
