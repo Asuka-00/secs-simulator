@@ -30,7 +30,7 @@ pub fn builtin_templates() -> Vec<SessionTemplate> {
                 linktest_enabled: false,
                 rebind_if_passive: true,
                 mdln: "SECS-SIM".into(),
-                softrev: "0.1.0".into(),
+                softrev: "1.0.1".into(),
                 ..SessionConfig::default()
             },
         },
@@ -98,7 +98,7 @@ pub fn loopback_pair_templates(port: u16) -> Vec<SessionConfig> {
             linktest_enabled: false,
             rebind_if_passive: true,
             mdln: "SECS-SIM".into(),
-            softrev: "0.1.0".into(),
+            softrev: "1.0.1".into(),
             ..SessionConfig::default()
         },
         SessionConfig {
