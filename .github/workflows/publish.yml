@@ -25,6 +25,8 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
     env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ runner.temp }}/tauri-signing.key
+      TAURI_SIGNING_PRIVATE_KEY_PATH: ${{ runner.temp }}/tauri-signing.key
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: updater
     steps:
       - uses: actions/checkout@v5
@@ -63,7 +65,7 @@ jobs:
         env:
           RAW_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
-          KEY_FILE="${RUNNER_TEMP}/tauri-signing.key"
+          KEY_FILE="${TAURI_SIGNING_PRIVATE_KEY_PATH}"
           printf '%s' "${RAW_KEY}" | tr -d '[:space:]' > "${KEY_FILE}"
           BYTES=$(wc -c < "${KEY_FILE}" | tr -d '[:space:]')
           echo "wrote ${BYTES} bytes to key file (expect 348)"
@@ -72,7 +74,7 @@ jobs:
             echo "Settings → Secrets and variables → Actions → Repository secrets (not Environment)."
             exit 1
           fi
-          echo "TAURI_SIGNING_PRIVATE_KEY_PATH=${KEY_FILE}" >> "${GITHUB_ENV}"
+          test -f "${KEY_FILE}"
 
       - name: verify signing key
         shell: bash
@@ -83,7 +85,6 @@ jobs:
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY_PATH: ${{ env.TAURI_SIGNING_PRIVATE_KEY_PATH }}
         with:
           tagName: v__VERSION__
           releaseName: "SECS Simulator v__VERSION__"
