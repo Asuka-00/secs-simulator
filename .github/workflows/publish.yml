@@ -62,12 +62,15 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          if [ -z "${TAURI_SIGNING_PRIVATE_KEY}" ]; then
-            echo "TAURI_SIGNING_PRIVATE_KEY is empty. Paste the full contents of ~/.tauri/secs-simulator.key"
+          KEY_LEN=$(printf '%s' "${TAURI_SIGNING_PRIVATE_KEY}" | wc -c | tr -d ' ')
+          PASS_LEN=$(printf '%s' "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD}" | wc -c | tr -d ' ')
+          echo "key_chars=${KEY_LEN} pass_chars=${PASS_LEN} (key should be ~300+)"
+          if [ "${KEY_LEN}" -lt 80 ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY is missing or too short. Paste ALL of ~/.tauri/secs-simulator.key"
             exit 1
           fi
-          if [ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD}" ]; then
-            echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD is empty. Set it to the key password."
+          if [ "${PASS_LEN}" -lt 1 ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD is empty. Value must be: updater"
             exit 1
           fi
           printf 'test' > dummy.bin
