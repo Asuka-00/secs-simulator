@@ -1,6 +1,6 @@
 [package]
 name = "secs-simulator"
-version = "1.0.1"
+version = "1.0.2"
 description = "SECS/HSMS-SS dual-role simulator (Host/Equipment) powered by secs4rs"
 authors = ["secs-simulator contributors"]
 edition = "2021"

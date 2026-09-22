@@ -63,7 +63,7 @@ impl Default for SessionConfig {
             linktest_seconds: 30.0,
             rebind_if_passive: true,
             mdln: "SECS-SIM".into(),
-            softrev: "1.0.1".into(),
+            softrev: "1.0.2".into(),
             clock_type: ClockType::A16,
         }
     }
