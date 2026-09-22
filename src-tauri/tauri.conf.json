@@ -25,7 +25,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZGOTE2Q0U3NjZCQUVCOEEKUldTSzY3cG01MnlSYjBuTjdnUFFoZVgwZ0NGSCtCUlc5YzlWc1RVRzhYU1RaWGUrTUYra3pjMzkK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU3NDI3Njg4MjQ1OERBQjYKUldTMjJsZ2tpSFpDNTcraXhTTFFpQW5tNUF0QjEzaUdSTk1NamUxOUIwUDJ5YlNpZVFIRTR1SU8K",
       "endpoints": [
         "https://github.com/Asuka-00/secs-simulator/releases/latest/download/latest.json"
       ]
