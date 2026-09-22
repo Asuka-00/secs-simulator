@@ -9,14 +9,22 @@ interface InspNode {
   data: Record<string, unknown>;
 }
 
+interface InspEdge {
+  id: string;
+  source: string;
+  target: string;
+}
+
 const props = defineProps<{
   node: InspNode | null;
+  edge?: InspEdge | null;
   ancestors: InspNode[];
 }>();
 
 const emit = defineEmits<{
   patch: [data: Record<string, unknown>];
   remove: [];
+  removeEdge: [];
 }>();
 
 const { t } = useI18n();
@@ -63,8 +71,15 @@ function ancestorLabel(n: InspNode): string {
 
 <template>
   <div class="insp">
-    <div v-if="!node" class="empty">{{ t("flow.inspHint") }}</div>
-    <template v-else>
+    <template v-if="edge">
+      <div class="hd">
+        <span>{{ t("flow.inspEdge") }}</span>
+        <el-button size="small" text type="danger" @click="emit('removeEdge')">
+          {{ t("flow.deleteEdge") }}
+        </el-button>
+      </div>
+    </template>
+    <template v-else-if="node">
       <div class="hd">
         <span>{{
           ty === "trigger"
@@ -243,6 +258,7 @@ function ancestorLabel(n: InspNode): string {
         <el-button size="small" @click="addClause">{{ t("flow.addClause") }}</el-button>
       </template>
     </template>
+    <div v-else class="empty">{{ t("flow.inspHint") }}</div>
   </div>
 </template>
 

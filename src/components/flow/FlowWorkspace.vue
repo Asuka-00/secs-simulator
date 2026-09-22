@@ -50,14 +50,36 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let skipWatch = false;
 
 const flowCanvasId = computed(() => `flow-${props.sessionId}`);
-const { screenToFlowCoordinate, addNodes, addEdges, onConnect } = useVueFlow({
+const { screenToFlowCoordinate, addNodes, addEdges, onConnect, removeEdges } = useVueFlow({
   id: `flow-${props.sessionId}`,
 });
 
-onConnect((c: Connection) => addEdges(c));
+function isDefaultOutlet(handle: string | null | undefined): boolean {
+  return handle == null || handle === "" || handle === "source";
+}
+
+function sameSourceOutlet(
+  a: { source: string; sourceHandle?: string | null },
+  b: { source: string; sourceHandle?: string | null },
+): boolean {
+  if (a.source !== b.source) return false;
+  const ah = a.sourceHandle ?? null;
+  const bh = b.sourceHandle ?? null;
+  if (ah === bh) return true;
+  return isDefaultOutlet(ah) && isDefaultOutlet(bh);
+}
+
+onConnect((c: Connection) => {
+  const stale = edges.value.filter((e) => sameSourceOutlet(e, c)).map((e) => e.id);
+  if (stale.length) removeEdges(stale);
+  addEdges(c);
+});
 
 const active = computed(() => flows.value.find((f) => f.id === activeId.value) ?? null);
-const selected = computed(() => nodes.value.find((n) => n.selected) ?? null);
+const selectedEdge = computed(() => edges.value.find((e) => e.selected) ?? null);
+const selected = computed(() =>
+  selectedEdge.value ? null : (nodes.value.find((n) => n.selected) ?? null),
+);
 const isRunning = computed(
   () =>
     !!activeId.value && store.isFlowRunning(props.sessionId, activeId.value),
@@ -144,7 +166,11 @@ function applyFlow(f: FlowDef | null) {
     edges.value = [];
   } else {
     nodes.value = f.nodes.map((n) => ({ ...n }));
-    edges.value = f.edges.map((e) => ({ ...e }));
+    edges.value = f.edges.map((e) => ({
+      ...e,
+      selectable: true,
+      deletable: true,
+    }));
   }
   nextTick(() => {
     skipWatch = false;
@@ -387,6 +413,16 @@ function removeNode() {
   nodes.value = nodes.value.filter((n) => n.id !== id);
   edges.value = edges.value.filter((e) => e.source !== id && e.target !== id);
 }
+
+function removeEdge() {
+  const id = selectedEdge.value?.id;
+  if (!id) return;
+  removeEdges(id);
+}
+
+function onEdgeClick() {
+  nodes.value = nodes.value.map((n) => (n.selected ? { ...n, selected: false } : n));
+}
 </script>
 
 <template>
@@ -476,7 +512,9 @@ function removeNode() {
           v-model:edges="edges"
           :node-types="nodeTypes"
           fit-view-on-init
-          :default-edge-options="{ type: 'smoothstep' }"
+          :delete-key-code="['Backspace', 'Delete']"
+          :default-edge-options="{ type: 'smoothstep', selectable: true, deletable: true }"
+          @edge-click="onEdgeClick"
           @dragover.prevent
           @drop="onDrop"
         >
@@ -486,7 +524,14 @@ function removeNode() {
       </div>
 
       <aside class="side">
-        <FlowInspector :node="selected" :ancestors="ancestors" @patch="patchNode" @remove="removeNode" />
+        <FlowInspector
+          :node="selected"
+          :edge="selectedEdge"
+          :ancestors="ancestors"
+          @patch="patchNode"
+          @remove="removeNode"
+          @remove-edge="removeEdge"
+        />
       </aside>
     </div>
   </div>
@@ -619,6 +664,11 @@ function removeNode() {
 
 .canvas :deep(.vue-flow__edge-path) {
   stroke: var(--muted);
+}
+
+.canvas :deep(.vue-flow__edge.selected .vue-flow__edge-path) {
+  stroke: var(--arr-h2e-fg);
+  stroke-width: 2.5;
 }
 
 .canvas :deep(.fn) {
