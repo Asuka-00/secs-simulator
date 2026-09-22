@@ -72,14 +72,12 @@ jobs:
             echo "Settings → Secrets and variables → Actions → Repository secrets (not Environment)."
             exit 1
           fi
-          {
-            echo "TAURI_SIGNING_PRIVATE_KEY=${KEY_FILE}"
-            echo "TAURI_SIGNING_PRIVATE_KEY_PATH=${KEY_FILE}"
-          } >> "${GITHUB_ENV}"
+          echo "TAURI_SIGNING_PRIVATE_KEY_PATH=${KEY_FILE}" >> "${GITHUB_ENV}"
 
       - name: verify signing key
         shell: bash
         run: |
+          unset TAURI_SIGNING_PRIVATE_KEY
           printf 'test' > dummy.bin
           pnpm tauri signer sign dummy.bin
 
@@ -87,7 +85,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ runner.temp }}/tauri-signing.key
-          TAURI_SIGNING_PRIVATE_KEY_PATH: ${{ runner.temp }}/tauri-signing.key
         with:
           tagName: v__VERSION__
           releaseName: "SECS Simulator v__VERSION__"
