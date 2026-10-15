@@ -62,7 +62,7 @@ type DropPayload = {
 let dragPayload: DropPayload | null = null;
 
 const flowCanvasId = computed(() => `flow-${props.sessionId}`);
-const { screenToFlowCoordinate, addNodes, addEdges, onConnect, removeEdges } = useVueFlow({
+const { screenToFlowCoordinate, addEdges, onConnect, removeEdges } = useVueFlow({
   id: `flow-${props.sessionId}`,
 });
 
@@ -442,7 +442,12 @@ function placeNode(partial: {
   position: { x: number; y: number };
   data: Record<string, unknown>;
 }) {
-  addNodes({ id: crypto.randomUUID(), ...partial });
+  // `nodes` is the persisted source of truth; write it directly instead of via the store.
+  const id = crypto.randomUUID();
+  nodes.value = [
+    ...nodes.value.map((n) => (n.selected ? { ...n, selected: false } : n)),
+    { id, selected: true, ...partial },
+  ];
 }
 
 async function addType(type: FlowNodeType, ev?: DragEvent) {
