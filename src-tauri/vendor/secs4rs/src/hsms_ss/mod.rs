@@ -260,7 +260,23 @@ impl HsmsSsCommunicator {
         if wait.is_zero() {
             wait = Duration::from_secs(5);
         }
-        TcpStream::connect_timeout(&addr, wait).map_err(HsmsError::from)
+        // macOS may fail connect() with EADDRINUSE when the chosen ephemeral source
+        // port forms a 4-tuple that collides with a live/TIME_WAIT socket. The kernel
+        // picks a fresh port per attempt, so retry briefly before surfacing it.
+        let mut attempt = 0u32;
+        loop {
+            match TcpStream::connect_timeout(&addr, wait) {
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::AddrInUse
+                        && attempt < 8
+                        && !self.open_stop.load(Ordering::SeqCst) =>
+                {
+                    attempt += 1;
+                    thread::sleep(Duration::from_millis(25 * u64::from(attempt)));
+                }
+                r => return r.map_err(HsmsError::from),
+            }
+        }
     }
 
     /// Shared pass-through facade (`HsmsMessagePassThroughObservable`).
