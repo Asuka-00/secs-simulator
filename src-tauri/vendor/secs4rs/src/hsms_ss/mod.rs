@@ -496,12 +496,23 @@ impl HsmsSsCommunicator {
 
         let listener = TcpListener::bind(addr).map_err(HsmsError::from)?;
         self.open.store(true, Ordering::SeqCst);
+        self.accept_and_select(&listener, interruptible_accept)
+    }
 
+    /// Accept one connection on an already-bound `listener` and complete SELECT.
+    ///
+    /// The rebind loop reuses one listener so the port never stops listening between
+    /// sessions (a gap there makes an Active peer see ECONNREFUSED).
+    fn accept_and_select(
+        &self,
+        listener: &TcpListener,
+        interruptible_accept: bool,
+    ) -> Result<(), HsmsError> {
         let stream = if interruptible_accept {
             listener
                 .set_nonblocking(true)
                 .map_err(HsmsError::from)?;
-            let s = accept_until(&listener, &self.open_stop)?;
+            let s = accept_until(listener, &self.open_stop)?;
             s.set_nonblocking(false).map_err(HsmsError::from)?;
             s
         } else {
@@ -644,7 +655,8 @@ impl HsmsSsCommunicator {
 
     /// Full Passive Open: background worker re-binds after session ends when `DoRebindIfPassive`.
     ///
-    /// Between rebinds waits **T5** (parity with C# `Open` loop). Stops on [`close`]
+    /// Keeps one listener bound across sessions (no refuse window); backs off **T5** only
+    /// after a failed accept/SELECT. Stops on [`close`]
     /// or when rebind is disabled after the first session.
     pub fn open_passive_with_rebind(self: &Arc<Self>) -> Result<(), HsmsError> {
         if self.mode != HsmsConnectionMode::Passive {
@@ -654,6 +666,15 @@ impl HsmsSsCommunicator {
             .config
             .socket_address()
             .ok_or(HsmsError::Protocol("socket address unset"))?;
+
+        let addr = self
+            .config
+            .socket_address()
+            .ok_or(HsmsError::Protocol("socket address unset"))?;
+        // Bind once, up front: bind errors surface to the caller and the port keeps
+        // listening across sessions, so the peer is never refused between them.
+        let listener = TcpListener::bind(addr).map_err(HsmsError::from)?;
+        listener.set_nonblocking(true).map_err(HsmsError::from)?;
 
         self.open_stop.store(false, Ordering::SeqCst);
         self.open.store(true, Ordering::SeqCst);
@@ -665,7 +686,8 @@ impl HsmsSsCommunicator {
                 if this.open_stop.load(Ordering::SeqCst) {
                     break;
                 }
-                match this.open_passive_inner(true) {
+                let mut failed = false;
+                match this.accept_and_select(&listener, true) {
                     Ok(()) => {
                         while !this.open_stop.load(Ordering::SeqCst)
                             && this.hsms_communicate_state() == HsmsCommunicateState::Selected
@@ -683,6 +705,7 @@ impl HsmsSsCommunicator {
                         }
                     }
                     Err(e) => {
+                        failed = true;
                         this.set_last_open_error(&e);
                         this.unset_channel();
                     }
@@ -693,9 +716,12 @@ impl HsmsSsCommunicator {
                 if !this.config.do_rebind_if_passive().boolean_value() {
                     break;
                 }
-                // C# Open: T5.Sleep between OpenPassive rebinds.
-                let t5 = this.config.timeout().t5().get().as_duration();
-                sleep_chunked(t5, &this.open_stop);
+                // Listener stays bound, so no wait is needed after a finished session;
+                // back off T5 only after a failed accept/SELECT to avoid a hot loop.
+                if failed {
+                    let t5 = this.config.timeout().t5().get().as_duration();
+                    sleep_chunked(t5, &this.open_stop);
+                }
             }
         });
         *self.open_handle.lock().expect("open handle") = Some(handle);

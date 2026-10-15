@@ -110,7 +110,7 @@ export function defaultSessionConfig(overrides?: Partial<SessionConfig>): Sessio
     linktestSeconds: 30,
     rebindIfPassive: true,
     mdln: "SECS-SIM",
-    softrev: "1.0.3",
+    softrev: "1.0.4",
     clockType: "a16",
     ...overrides,
   };
